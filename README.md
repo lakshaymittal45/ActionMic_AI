@@ -184,7 +184,7 @@ All backend settings live in `backend/.env`
 | `PATIENT_CONVO_DIR` | ⬜ | `D:\Patient Convo` | Folder where all audio files are stored |
 | `WHISPER_DEVICE` | ⬜ | auto | Force `cpu` or `cuda` |
 | `TRANSCRIPTION_BACKEND` | ⬜ | `auto` | `auto`, `indicconformer`, or `whisper` |
-| `TRANSCRIPT_OUTPUT_MODE` | ⬜ | `romanized` | `native`, `romanized`, or `both` |
+| `TRANSCRIPT_OUTPUT_MODE` | ⬜ | `both` | `native`, `romanized`, or `both` |
 | `INDIC_TRANSCRIPTION_LANGUAGE` | ⬜ | `auto` | Use `hi`, `pa`, etc. to force a monolingual Indic model |
 | `PARALLEL_DIARIZATION_TRANSCRIPTION` | ⬜ | `true` | Overlap diarization and ASR when the resolved backend is Whisper |
 | `LIVE_TRANSCRIPT_HOLDBACK_SEC` | ⬜ | `1.2` | Keep the last active-speech tail out of live transcript updates so utterances are not cut mid-sentence |

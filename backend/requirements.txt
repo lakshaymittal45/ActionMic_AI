@@ -78,3 +78,18 @@ psutil>=5.9.0           # System resource monitoring (CPU, RAM)
 GPUtil>=1.4.0           # NVIDIA GPU detection
 
 
+# ── Model / Runtime Extras (recommended for full model support) ─────────────
+transformers>=4.30.0
+accelerate>=0.20.0
+onnxruntime>=1.15.0
+ctranslate2>=4.0.0
+safetensors>=0.3.0
+torchvision>=0.15.2
+transformers[sentencepiece]
+speechbrain>=0.5.18
+
+# Utilities for model download & management
+huggingface_hub>=0.19.0
+sagemaker>=2.148.0
+
+

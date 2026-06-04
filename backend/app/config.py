@@ -218,13 +218,14 @@ if TRANSCRIPTION_BACKEND not in {"auto", "indicconformer", "whisper"}:
 # - native: native script only
 # - romanized: English letters for Indic scripts
 # - both: romanized primary text plus native script metadata
-TRANSCRIPT_OUTPUT_MODE = os.getenv("TRANSCRIPT_OUTPUT_MODE", "romanized").strip().lower()
+# Default to 'both' to preserve both native-script and romanized variants
+TRANSCRIPT_OUTPUT_MODE = os.getenv("TRANSCRIPT_OUTPUT_MODE", "both").strip().lower()
 if TRANSCRIPT_OUTPUT_MODE not in {"native", "romanized", "both"}:
     logger.warning(
-        "Invalid TRANSCRIPT_OUTPUT_MODE=%s, falling back to 'romanized'",
+        "Invalid TRANSCRIPT_OUTPUT_MODE=%s, falling back to 'both'",
         TRANSCRIPT_OUTPUT_MODE,
     )
-    TRANSCRIPT_OUTPUT_MODE = "romanized"
+    TRANSCRIPT_OUTPUT_MODE = "both"
 
 # Optional language hint for local Indic ASR.
 # Use ISO-like short codes such as hi, pa, mr, bn, ta, te, kn, ml, gu, or auto.
