@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 
 import TranscriptViewer from "@/components/TranscriptViewer";
 import ClinicalNotes from "@/components/ClinicalNotes";
 import { saveCorrectedTranscript } from "@/lib/api";
 
-export default function ConsultationPage() {
+function ConsultationPageContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -348,4 +348,12 @@ function formatTime(seconds = 0) {
   const mins = Math.floor(Number(seconds || 0) / 60);
   const secs = Math.floor(Number(seconds || 0) % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+export default function ConsultationPage() {
+  return (
+    <Suspense fallback={<div className="consultation-wrapper"><p>Loading consultation...</p></div>}>
+      <ConsultationPageContent />
+    </Suspense>
+  );
 }

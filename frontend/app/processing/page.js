@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function ProcessingPage() {
+function ProcessingPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
@@ -60,5 +60,13 @@ export default function ProcessingPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function ProcessingPage() {
+  return (
+    <Suspense fallback={<div className="processing-wrapper"><div className="processing-card"><div className="processing-spinner" /><h1>Loading...</h1></div></div>}>
+      <ProcessingPageContent />
+    </Suspense>
   );
 }

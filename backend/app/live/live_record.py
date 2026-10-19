@@ -11,8 +11,6 @@ import wave
 import struct
 import asyncio
 import logging
-import subprocess
-import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -52,17 +50,6 @@ INCREMENTAL_INTERVAL_SEC = 8
 MIN_DURATION_FOR_TRANSCRIPTION = 2.0
 
 AES_KEY: Optional[bytes] = None
-
-# ------------------------------------------------------------------
-# Check ffmpeg availability at import time
-# ------------------------------------------------------------------
-FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
-if not FFMPEG_AVAILABLE:
-    logger.warning(
-        "⚠️ ffmpeg not found on PATH. Live recording needs ffmpeg for "
-        "webm→wav conversion. Install from https://ffmpeg.org"
-    )
-
 
 def _init_aes_key():
     """Lazy-load AES key from env (avoids import-time crash if env isn't set yet)."""
@@ -104,7 +91,7 @@ def _build_wav_path(patient_id: str) -> str:
 
 def _save_wav(path: str, pcm_frames: bytes, sample_rate: int = 16000,
               channels: int = 1, sample_width: int = 2):
-    """Write raw PCM bytes to a WAV file."""
+    """Write raw PCM16 bytes to a WAV file."""
     with wave.open(path, "wb") as wf:
         wf.setnchannels(channels)
         wf.setsampwidth(sample_width)
@@ -112,59 +99,18 @@ def _save_wav(path: str, pcm_frames: bytes, sample_rate: int = 16000,
         wf.writeframes(pcm_frames)
 
 
-def _webm_to_wav(webm_bytes: bytes, out_path: str, sample_rate: int = 16000) -> str:
-    """Convert raw webm/opus bytes to 16 kHz mono WAV using ffmpeg.
+def _write_recording_wav(pcm_frames: bytes, out_path: str, sample_rate: int = 16000) -> str:
+    """Write raw PCM16 live-capture bytes to WAV and validate the result."""
+    _save_wav(out_path, pcm_frames, sample_rate=sample_rate)
 
-    Raises RuntimeError when conversion fails or the output is empty/invalid.
-    """
-    if not FFMPEG_AVAILABLE:
-        raise RuntimeError(
-            "ffmpeg is not installed or not on PATH. "
-            "Install from https://ffmpeg.org"
-        )
+    import soundfile as sf
+    info = sf.info(out_path)
+    logger.info(
+        f"✅ WAV written | duration={info.duration:.1f}s | "
+        f"rate={info.samplerate} | size={os.path.getsize(out_path)} bytes"
+    )
 
-    tmp_webm = out_path + ".tmp.webm"
-    try:
-        with open(tmp_webm, "wb") as f:
-            f.write(webm_bytes)
-
-        logger.info(
-            f"🎙️ Converting webm→wav | input={len(webm_bytes)} bytes → {out_path}"
-        )
-
-        result = subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-i", tmp_webm,
-                "-ar", str(sample_rate),
-                "-ac", "1",
-                "-sample_fmt", "s16",
-                out_path,
-            ],
-            capture_output=True,
-            timeout=60,
-        )
-        if result.returncode != 0:
-            stderr_msg = result.stderr.decode(errors="replace")[:500]
-            logger.error(f"ffmpeg error: {stderr_msg}")
-            raise RuntimeError(f"ffmpeg conversion failed: {stderr_msg}")
-
-        # Validate output
-        if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
-            raise RuntimeError("ffmpeg produced an empty output file")
-
-        # Quick duration check
-        import soundfile as sf
-        info = sf.info(out_path)
-        logger.info(
-            f"✅ WAV written | duration={info.duration:.1f}s | "
-            f"rate={info.samplerate} | size={os.path.getsize(out_path)} bytes"
-        )
-
-        return out_path
-    finally:
-        if os.path.exists(tmp_webm):
-            os.remove(tmp_webm)
+    return out_path
 
 
 def _enhance_wav(wav_path: str) -> str:
@@ -427,9 +373,9 @@ async def live_record_ws(ws: WebSocket):
     """
     WebSocket protocol
     ==================
-    **Client → Server (binary):** raw audio chunk (webm/opus from MediaRecorder).
+    **Client → Server (binary):** raw PCM16 audio chunk from the browser audio graph.
     **Client → Server (text/JSON):**
-        • ``{"type": "start", "patient_id": "...", "clinician": "..."}``
+        • ``{"type": "start", "patient_id": "...", "clinician": "...", "sample_rate": 48000}``
         • ``{"type": "stop"}``
     **Server → Client (JSON):**
         • ``{"type": "transcript", "data": [...]}``  – incremental transcript
@@ -450,6 +396,7 @@ async def live_record_ws(ws: WebSocket):
     patient_id: Optional[str] = None
     clinician: Optional[str] = None
     audio_chunks: bytearray = bytearray()
+    sample_rate: int = 16000
     recording = False
     wav_path: Optional[str] = None
     incremental_task: Optional[asyncio.Task] = None
@@ -483,12 +430,12 @@ async def live_record_ws(ws: WebSocket):
                 f"🎙️ [Incremental #{cycle}] {chunk_size} bytes accumulated"
             )
 
-            # Convert accumulated audio to WAV for processing
+                    # Convert accumulated PCM to WAV for processing
             tmp_wav = wav_path + f".partial_{cycle}.wav"
             try:
-                logger.info(f"[Incremental #{cycle}] Converting {chunk_size} bytes to WAV: {tmp_wav}")
-                _webm_to_wav(bytes(audio_chunks), tmp_wav)
-                logger.info(f"[Incremental #{cycle}] WAV conversion successful")
+                        logger.info(f"[Incremental #{cycle}] Writing {chunk_size} bytes to WAV: {tmp_wav}")
+                        _write_recording_wav(bytes(audio_chunks), tmp_wav, sample_rate=sample_rate)
+                        logger.info(f"[Incremental #{cycle}] WAV write successful")
             except Exception as e:
                 logger.error(f"❌ [Incremental #{cycle}] WAV conversion failed: {type(e).__name__}: {e}", exc_info=True)
                 continue
@@ -581,6 +528,9 @@ async def live_record_ws(ws: WebSocket):
         while True:
             message = await ws.receive()
 
+            if message.get("type") == "websocket.disconnect":
+                break
+
             # --- binary audio chunk ---
             if "bytes" in message and message["bytes"]:
                 if recording:
@@ -614,11 +564,13 @@ async def live_record_ws(ws: WebSocket):
                     clinician = raw_clin.strip()
                     wav_path = _build_wav_path(patient_id)
                     audio_chunks = bytearray()
+                    sample_rate = int(payload.get("sample_rate") or 16000)
                     committed_transcript = []
                     recording = True
 
                     logger.info(
                         f"🎙️ Recording started | Patient: {patient_id} | Clinician: {clinician} | "
+                        f"Sample rate: {sample_rate}Hz | "
                         f"Incremental interval: {INCREMENTAL_INTERVAL_SEC}s"
                     )
                     await _send_json(ws, {
@@ -659,13 +611,13 @@ async def live_record_ws(ws: WebSocket):
                         "message": "Saving recording…",
                     })
                     try:
-                        _webm_to_wav(bytes(audio_chunks), wav_path)
+                        _write_recording_wav(bytes(audio_chunks), wav_path, sample_rate=sample_rate)
                         logger.info(f"✅ [Live] Audio saved: {wav_path}")
                     except Exception as e:
                         logger.exception(f"Audio conversion failed: {e}")
                         await _send_json(ws, {
                             "type": "error",
-                            "message": "Audio conversion failed. Ensure ffmpeg is installed and the recording is valid.",
+                            "message": "Audio save failed. Ensure the recording is valid.",
                         })
                         continue
 
@@ -710,7 +662,7 @@ async def live_record_ws(ws: WebSocket):
         # Save whatever audio we have so nothing is lost
         if audio_chunks and wav_path:
             try:
-                _webm_to_wav(bytes(audio_chunks), wav_path)
+                _write_recording_wav(bytes(audio_chunks), wav_path, sample_rate=sample_rate)
                 logger.info(
                     f"💾 [Live] Saved audio on disconnect: {wav_path} "
                     f"({len(audio_chunks)} bytes)"
@@ -725,7 +677,7 @@ async def live_record_ws(ws: WebSocket):
         # Save whatever audio we have
         if audio_chunks and wav_path:
             try:
-                _webm_to_wav(bytes(audio_chunks), wav_path)
+                _write_recording_wav(bytes(audio_chunks), wav_path, sample_rate=sample_rate)
                 logger.info(
                     f"💾 [Live] Saved audio on error: {wav_path}"
                 )

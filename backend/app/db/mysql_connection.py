@@ -1,8 +1,10 @@
-import mysql.connector
-from mysql.connector import pooling
 import os
 import logging
+import mysql.connector
+from mysql.connector import pooling
+from dotenv import load_dotenv
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
@@ -20,13 +22,13 @@ def init_connection_pool():
     
     try:
         connection_pool = pooling.MySQLConnectionPool(
-            pool_name="voice_emr_pool",
+            pool_name="actionmic_ai_pool",
             pool_size=10,  # Adjust based on workload
             pool_reset_session=True,
             host=os.getenv("MYSQL_HOST", "localhost"),
             user=os.getenv("MYSQL_USER", "root"),
             password=os.getenv("MYSQL_PASSWORD", ""),
-            database=os.getenv("MYSQL_DB", "voice_emr"),
+            database=os.getenv("MYSQL_DB", "actionmic_ai"),
             # Robustness settings
             connect_timeout=10,
             autocommit=False,

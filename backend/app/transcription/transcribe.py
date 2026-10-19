@@ -47,12 +47,21 @@ _NUM_WORKERS = 4 if _IS_GPU else 2     # More CTranslate2 workers on GPU
 
 from app.transcription.offline_indic import (
     TranscriptSegment,
-    attach_output_variants,
     get_indic_backend_status,
     indic_backend_available,
     selected_indic_language,
     transcribe_diarization_segments,
 )
+
+
+def attach_output_variants(text: str, language: Optional[str]) -> Dict[str, Optional[str]]:
+    """Return Whisper's original text without offline transliteration."""
+    return {
+        "text": text,
+        "text_native": text,
+        "text_romanized": None,
+        "language": language,
+    }
 
 # ------------------------------------------------------------------
 # Setup
@@ -86,7 +95,7 @@ ACTIVE_MODEL_NAME = None
 MODEL_LOAD_ERRORS = {}  # Track which models failed
 
 logging.info(
-    f"Medical-Grade Transcription Enabled | "
+    f"ActionMic transcription enabled | "
     f"Backend={TRANSCRIPTION_BACKEND} | "
     f"Priority: {' > '.join(TRANSCRIPTION_MODEL_PRIORITY)}"
 )
@@ -555,6 +564,23 @@ def get_whisper_model(preferred_model: Optional[str] = None) -> Tuple['WhisperMo
     raise RuntimeError(
         f"All transcription models failed. Errors: {MODEL_LOAD_ERRORS}"
     )
+
+
+def whisper_translate_audio(audio_path: str, target_lang: str = "en") -> List[str]:
+    """Translate speech using Whisper's native multilingual translation task."""
+    if not FASTER_WHISPER_AVAILABLE or target_lang in (None, "", "auto"):
+        return []
+    model, model_name = get_whisper_model()
+    segments, _ = model.transcribe(
+        audio_path,
+        task="translate",
+        beam_size=_BEAM_SIZE,
+        vad_filter=True,
+        condition_on_previous_text=False,
+    )
+    result = [segment.text.strip() for segment in segments if segment.text and segment.text.strip()]
+    logging.info("Whisper translation generated %d segments with %s", len(result), model_name)
+    return result
 
 # ------------------------------------------------------------------
 # Helpers

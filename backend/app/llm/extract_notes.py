@@ -57,7 +57,7 @@ last_health_check_time = 0
 HEALTH_CHECK_INTERVAL = 300  # 5 minutes
 
 logger.info(
-    f"🏥 Medical-Grade LLM Enabled | "
+    f"ActionMic LLM enabled | "
     f"Priority: {' > '.join(MEDICAL_LLM_PRIORITY[:3])}..."
 )
 

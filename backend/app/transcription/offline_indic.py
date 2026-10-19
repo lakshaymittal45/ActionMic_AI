@@ -236,8 +236,8 @@ def _load_transliterator():
     except ImportError as exc:
         _IMPORT_ERRORS["transliteration_fallback"] = str(exc)
         if not _TRANSLITERATOR_WARNED:
-            logger.warning(
-                "No Indic transliteration backend is installed; Indic transcripts will stay in native script."
+            logger.debug(
+                "Legacy Indic transliteration backend is unavailable; meeting romanization is handled by the LLM pipeline."
             )
             _TRANSLITERATOR_WARNED = True
         return None

@@ -1,13 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Voice EMR - HBCH Punjab",
-  description: "Voice-based electronic medical records for hospital consultations",
-  icons: {
-    icon: "/hbch-logo.png",
-    shortcut: "/hbch-logo.png",
-    apple: "/hbch-logo.png",
-  },
+  title: "ActionMic_AI — Meeting Intelligence Platform",
+  description: "AI-powered meeting recording, transcription, translation, decisions, and action items for Google Meet, Zoom, WhatsApp, Teams, and in-person meetings.",
 };
 
 export default function RootLayout({ children }) {

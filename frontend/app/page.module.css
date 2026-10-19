@@ -35,16 +35,16 @@ body {
   color: var(--text-primary);
 }
 
-/* -------- Reusable EMR Components -------- */
+/* -------- Reusable workspace components -------- */
 
-.emr-card {
+.workspace-card {
   background-color: var(--foreground);
   border: 1px solid var(--border-default);
   border-radius: 12px;
   padding: 24px;
 }
 
-.emr-button-primary {
+.workspace-button-primary {
   background-color: var(--accent-blue);
   color: white;
   border-radius: 8px;
@@ -54,11 +54,11 @@ body {
   cursor: pointer;
 }
 
-.emr-button-primary:hover {
+.workspace-button-primary:hover {
   opacity: 0.9;
 }
 
-.emr-button-secondary {
+.workspace-button-secondary {
   background-color: transparent;
   border: 1px solid var(--border-default);
   color: var(--text-primary);

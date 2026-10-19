@@ -88,7 +88,7 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app_instance):
     """Startup and shutdown lifecycle for the FastAPI app."""
-    logger.info("Voice EMR Backend starting up...")
+    logger.info("ActionMic AI Backend starting up...")
     
     # Run database migrations on startup
     try:
@@ -100,7 +100,7 @@ async def lifespan(app_instance):
     
     yield
     # Shutdown
-    logger.info("Shutting down Voice EMR Backend...")
+    logger.info("Shutting down ActionMic AI Backend...")
     try:
         from app.db.mysql_connection import close_connection_pool
         close_connection_pool()
@@ -108,7 +108,7 @@ async def lifespan(app_instance):
     except Exception as e:
         logger.error(f"Error during shutdown: {e}")
 
-app = FastAPI(title="Voice EMR Backend", lifespan=lifespan)
+app = FastAPI(title="ActionMic AI Backend", lifespan=lifespan)
 
 # CORS: read allowed origins from env var (comma-separated list)
 # Example in .env: CORS_ORIGINS=http://localhost:3000,https://yourdomain.com
@@ -119,11 +119,16 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Range"],
+    expose_headers=["Content-Range", "Accept-Ranges", "Content-Length", "Content-Disposition"]
 )
 
-# 🎙️ Live recording WebSocket router
+# 🎙️ ActionMic_AI API v1 Routers (Meetings, Transcripts, Intelligence, Audio, Live Recording)
+from app.api.router import api_v1_router
+app.include_router(api_v1_router)
+
+# 🎙️ Legacy Live recording WebSocket router
 app.include_router(live_record_router)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -135,7 +140,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # ----------------------------------------------------------------
 UPLOAD_DIR = os.getenv("PATIENT_CONVO_DIR", r"D:\Patient Convo")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-logger.info(f"Patient recordings directory: {UPLOAD_DIR}")
+logger.info(f"ActionMic media directory: {UPLOAD_DIR}")
 
 # ------------------------------------------------------------------
 # Input validation helpers
@@ -1591,7 +1596,7 @@ def get_patient_appointments(patient_id: str):
 def root():
     """Root endpoint - API info."""
     return {
-        "service": "Voice EMR Backend API",
+        "service": "ActionMic AI Backend API",
         "version": "2.0.0-medical",
         "status": "running",
         "enhancements": [

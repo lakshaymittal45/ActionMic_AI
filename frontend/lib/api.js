@@ -216,3 +216,158 @@ export async function saveCorrectedTranscript(audioId, transcriptCorrected, role
 
   return res.json();
 }
+
+// =====================================================================
+// ACTIONMIC_AI MEETING INTELLIGENCE API CLIENT
+// =====================================================================
+
+export async function createMeeting(data) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function listMeetings({ page = 1, pageSize = 50, search = "", status = "", sourceType = "" } = {}) {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (search) params.append("search", search);
+  if (status) params.append("status", status);
+  if (sourceType) params.append("source_type", sourceType);
+  const res = await fetch(`${API_BASE}/api/v1/meetings?${params.toString()}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getMeeting(meetingId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateMeeting(meetingId, data) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteMeeting(meetingId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function triggerMeetingProcessing(meetingId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/process`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getMeetingJobs(meetingId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/jobs`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getMeetingTranscript(meetingId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/transcript`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateSpeakerName(meetingId, speakerId, displayName) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/speakers/${speakerId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ display_name: displayName }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function getMeetingIntelligence(meetingId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/intelligence`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function regenerateIntelligence(meetingId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/intelligence/regenerate`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function createActionItem(meetingId, data) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/intelligence/action-items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function updateActionItem(meetingId, itemId, data) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/intelligence/action-items/${itemId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteActionItem(meetingId, itemId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/intelligence/action-items/${itemId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function uploadMeetingAudio(meetingId, file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/audio/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export function getMeetingAudioStreamUrl(meetingId) {
+  return `${API_BASE}/api/v1/meetings/${meetingId}/audio/stream`;
+}
+
+export function getMeetingExportUrl(meetingId, format = "markdown") {
+  return `${API_BASE}/api/v1/meetings/${meetingId}/export?format=${format}`;
+}
+
+export async function startMeetingRecording(meetingId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/recording/start`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function stopMeetingRecording(meetingId) {
+  const res = await fetch(`${API_BASE}/api/v1/meetings/${meetingId}/recording/stop`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}

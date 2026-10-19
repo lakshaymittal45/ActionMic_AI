@@ -22,12 +22,17 @@ export default function LiveRecorder({
   const [volumeLevel, setVolumeLevel] = useState(0);
 
   const wsRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const sourceNodeRef = useRef(null);
+  const processorNodeRef = useRef(null);
+  const silentGainRef = useRef(null);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
   const analyserRef = useRef(null);
   const animFrameRef = useRef(null);
   const isRecordingRef = useRef(false);  // ref to avoid stale closure in ws.onclose
+  const isPausedRef = useRef(false);
+  const sampleRateRef = useRef(16000);
 
   // Map speaker IDs from backend (SPEAKER_00, SPEAKER_01) to human-readable labels
   function getSpeakerDisplay(speakerId) {
@@ -53,11 +58,37 @@ export default function LiveRecorder({
     if (timerRef.current) clearInterval(timerRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
 
-    if (
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current.state !== "inactive"
-    ) {
-      mediaRecorderRef.current.stop();
+    if (processorNodeRef.current) {
+      processorNodeRef.current.onaudioprocess = null;
+      try {
+        processorNodeRef.current.disconnect();
+      } catch {
+        // ignore disconnect errors during cleanup
+      }
+      processorNodeRef.current = null;
+    }
+
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.disconnect();
+      } catch {
+        // ignore disconnect errors during cleanup
+      }
+      sourceNodeRef.current = null;
+    }
+
+    if (silentGainRef.current) {
+      try {
+        silentGainRef.current.disconnect();
+      } catch {
+        // ignore disconnect errors during cleanup
+      }
+      silentGainRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
     }
 
     if (streamRef.current) {
@@ -111,56 +142,73 @@ export default function LiveRecorder({
     setAudioId(null);
     setFinishing(false);
 
-    // 1. Open WebSocket
-    const wsUrl = `${WS_URL}/ws/live-record`;
-    console.log("🔌 Connecting to WebSocket:", wsUrl);
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    // 1. Get mic access before opening the WebSocket so we only create a
+    // live session when recording is actually possible.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 16000,
+        },
+      });
+      streamRef.current = stream;
+      startVolumeMeter(stream);
 
-    ws.onopen = async () => {
-      console.log("✅ WebSocket opened, sending start message...");
-      // Send start control message
-      ws.send(
-        JSON.stringify({
-          type: "start",
-          patient_id: patientId,
-          clinician: clinician,
-        })
-      );
-      console.log("📤 Sent start message:", { patient_id: patientId, clinician: clinician });
+      // 3. Open WebSocket only after the mic is confirmed.
+      const wsUrl = `${WS_URL}/ws/live-record`;
+      console.log("🔌 Connecting to WebSocket:", wsUrl);
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-      // 2. Get mic access
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            sampleRate: 16000,
-          },
-        });
-        streamRef.current = stream;
-        startVolumeMeter(stream);
+      ws.onopen = () => {
+        console.log("✅ WebSocket opened, sending start message...");
 
-        // 3. MediaRecorder – send chunks every 1 second
-        const recorder = new MediaRecorder(stream, {
-          mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-            ? "audio/webm;codecs=opus"
-            : "audio/webm",
-        });
-        mediaRecorderRef.current = recorder;
+        const audioContext = new AudioContext();
+        audioContextRef.current = audioContext;
+        sampleRateRef.current = audioContext.sampleRate;
 
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-            console.log(`🎤 Sending audio chunk: ${e.data.size} bytes`);
-            ws.send(e.data);
-          } else if (e.data.size > 0) {
-            console.warn("⚠️ WebSocket not open, cannot send audio chunk");
+        const sourceNode = audioContext.createMediaStreamSource(stream);
+        const processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+        const silentGain = audioContext.createGain();
+        silentGain.gain.value = 0;
+
+        sourceNode.connect(processorNode);
+        processorNode.connect(silentGain);
+        silentGain.connect(audioContext.destination);
+
+        sourceNodeRef.current = sourceNode;
+        processorNodeRef.current = processorNode;
+        silentGainRef.current = silentGain;
+
+        processorNode.onaudioprocess = (event) => {
+          if (!isRecordingRef.current || isPausedRef.current) return;
+          if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+          const input = event.inputBuffer.getChannelData(0);
+          const pcm16 = new Int16Array(input.length);
+
+          for (let i = 0; i < input.length; i++) {
+            const sample = Math.max(-1, Math.min(1, input[i]));
+            pcm16[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
           }
+
+          wsRef.current.send(pcm16.buffer);
         };
 
-        recorder.start(1000); // timeslice = 1s
+        ws.send(
+          JSON.stringify({
+            type: "start",
+            patient_id: patientId,
+            clinician: clinician,
+            sample_rate: audioContext.sampleRate,
+          })
+        );
+        console.log("📤 Sent start message:", { patient_id: patientId, clinician: clinician });
+
         setIsRecording(true);
         isRecordingRef.current = true;
+        isPausedRef.current = false;
         setStatusMsg("🔴 Recording…");
 
         // Start elapsed timer
@@ -168,76 +216,77 @@ export default function LiveRecorder({
         timerRef.current = setInterval(() => {
           setElapsed(Math.floor((Date.now() - start) / 1000));
         }, 500);
-      } catch (micErr) {
-        setError("Microphone access denied: " + micErr.message);
-        ws.close();
-      }
-    };
+      };
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
 
-        if (msg.type === "connected") {
-          // WebSocket connection confirmed
-          console.log("✅ WebSocket connected:", msg.message);
-        } else if (msg.type === "transcript") {
-          setTranscript(msg.data);
-          console.log("📝 Received transcript update:", msg.data.length, "segments");
-        } else if (msg.type === "status") {
-          setStatusMsg(msg.message);
-          console.log("📊 Status:", msg.message);
-        } else if (msg.type === "done") {
-          setAudioId(msg.audio_id);
-          setStatusMsg("✅ Processing complete!");
-          setFinishing(false);
-          console.log("✅ Processing complete! Audio ID:", msg.audio_id);
-        } else if (msg.type === "error") {
-          setError(msg.message);
-          setFinishing(false);
-          console.error("❌ Error:", msg.message);
-        } else if (msg.type === "ping") {
-          // Respond to server ping to keep connection alive
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "pong" }));
+          if (msg.type === "connected") {
+            // WebSocket connection confirmed
+            console.log("✅ WebSocket connected:", msg.message);
+          } else if (msg.type === "transcript") {
+            setTranscript(msg.data);
+            console.log("📝 Received transcript update:", msg.data.length, "segments");
+          } else if (msg.type === "status") {
+            setStatusMsg(msg.message);
+            console.log("📊 Status:", msg.message);
+          } else if (msg.type === "done") {
+            setAudioId(msg.audio_id);
+            setStatusMsg("✅ Processing complete!");
+            setFinishing(false);
+            console.log("✅ Processing complete! Audio ID:", msg.audio_id);
+          } else if (msg.type === "error") {
+            setError(msg.message);
+            setFinishing(false);
+            console.error("❌ Error:", msg.message);
+          } else if (msg.type === "ping") {
+            // Respond to server ping to keep connection alive
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "pong" }));
+            }
           }
+        } catch (err) {
+          console.error("Failed to parse WebSocket message:", err);
         }
-      } catch (err) {
-        console.error("Failed to parse WebSocket message:", err);
-      }
-    };
+      };
 
-    ws.onerror = (err) => {
-      console.error("❌ WebSocket error:", err);
-      setError("WebSocket connection failed. Is the backend running?");
-    };
+      ws.onerror = (err) => {
+        console.error("❌ WebSocket error:", err);
+        setError("WebSocket connection failed. Is the backend running?");
+      };
 
-    ws.onclose = (event) => {
-      console.log("🔌 WebSocket closed:", event.code, event.reason);
-      if (isRecordingRef.current) {
-        setIsRecording(false);
-        isRecordingRef.current = false;
-        setStatusMsg("Connection closed");
-      }
-    };
+      ws.onclose = (event) => {
+        console.log("🔌 WebSocket closed:", event.code, event.reason);
+        if (isRecordingRef.current) {
+          setIsRecording(false);
+          isRecordingRef.current = false;
+          setStatusMsg("Connection closed");
+        }
+      };
+    } catch (micErr) {
+      setError("Microphone access denied: " + micErr.message);
+    }
   }
 
   // ----------------------------------------------------------
   // Pause / Resume
   // ----------------------------------------------------------
   function handlePause() {
-    if (!mediaRecorderRef.current) return;
-    if (mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.pause();
+    if (!audioContextRef.current) return;
+    if (!isPausedRef.current) {
+      isPausedRef.current = true;
+      audioContextRef.current.suspend().catch(() => {});
       setIsPaused(true);
       setStatusMsg("⏸️ Paused");
     }
   }
 
   function handleResume() {
-    if (!mediaRecorderRef.current) return;
-    if (mediaRecorderRef.current.state === "paused") {
-      mediaRecorderRef.current.resume();
+    if (!audioContextRef.current) return;
+    if (isPausedRef.current) {
+      isPausedRef.current = false;
+      audioContextRef.current.resume().catch(() => {});
       setIsPaused(false);
       setStatusMsg("🔴 Recording…");
     }
@@ -251,33 +300,49 @@ export default function LiveRecorder({
     setIsPaused(false);
     setFinishing(true);
     isRecordingRef.current = false;
+    isPausedRef.current = false;
     setStatusMsg("Stopping recording & processing…");
 
     if (timerRef.current) clearInterval(timerRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
 
-    const recorder = mediaRecorderRef.current;
     const ws = wsRef.current;
 
-    // Request a final data flush from MediaRecorder, then send "stop"
-    if (recorder && recorder.state !== "inactive") {
-      // When requestData fires ondataavailable with the remaining buffer,
-      // we catch the "stop" event right after to send the control message.
-      recorder.onstop = () => {
-        // All buffered data has been flushed via ondataavailable.
-        // Now tell the backend we are done.
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "stop" }));
-        }
-      };
-      // Flush remaining data then stop
-      recorder.requestData();
-      recorder.stop();
-    } else {
-      // No recorder running, just tell backend
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "stop" }));
+    if (processorNodeRef.current) {
+      processorNodeRef.current.onaudioprocess = null;
+      try {
+        processorNodeRef.current.disconnect();
+      } catch {
+        // ignore disconnect errors during shutdown
       }
+      processorNodeRef.current = null;
+    }
+
+    if (sourceNodeRef.current) {
+      try {
+        sourceNodeRef.current.disconnect();
+      } catch {
+        // ignore disconnect errors during shutdown
+      }
+      sourceNodeRef.current = null;
+    }
+
+    if (silentGainRef.current) {
+      try {
+        silentGainRef.current.disconnect();
+      } catch {
+        // ignore disconnect errors during shutdown
+      }
+      silentGainRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "stop" }));
     }
 
     if (streamRef.current) {
